@@ -1,0 +1,10 @@
+attrs==21.4.0
+cffi==1.15.0
+cryptography==37.0.2
+in-toto==1.2.0
+iso8601==1.0.2
+pathspec==0.9.0
+pycparser==2.21
+python-dateutil==2.8.2
+securesystemslib==0.23.0
+six==1.16.0
