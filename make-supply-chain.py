@@ -8,10 +8,7 @@ import os
 import shutil
 
 
-def create_basic_supply_chain(layout_name):
-    # The basic layout needs four keys.
-    # One key for the layout itself, one each for each step.
-
+def create_basic_supply_chain(layout_name, parent_layout="", ):
     owner_path = os.path.join("keys", layout_name + "-owner")
     source_path = os.path.join("keys", layout_name + "-source")
     test_path = os.path.join("keys", layout_name + "-test")
@@ -71,14 +68,112 @@ def create_basic_supply_chain(layout_name):
     metadata = Metablock(signed=layout)
 
     metadata.sign(owner_key)
-    metadata.dump(os.path.join("metadata", layout_name + ".layout"))
+
+    if parent_layout:
+        metadata.dump(os.path.join("metadata", parent_layout, "tier-2-supply-chain.{keyid:.8}.link".format(keyid=owner_key["keyid"])))  # FIXME: Is it okay to hard code this?
+    else:
+        metadata.dump(os.path.join("metadata", layout_name + ".layout"))
 
     # Load functionary private keys
     source_key = interface.import_rsa_privatekey_from_file(source_path)
     test_key = interface.import_rsa_privatekey_from_file(test_path)
     build_key = interface.import_rsa_privatekey_from_file(build_path)
 
+    # Generate link metadata
+    if parent_layout:
+        sublayout_link_dir = os.path.join("metadata", parent_layout, "tier-2-supply-chain.{keyid:.8}".format(keyid=owner_key["keyid"]))
+        os.mkdir(sublayout_link_dir)
+        source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=sublayout_link_dir)
+        test_link = in_toto_run("test", [], [], [], signing_key=test_key, metadata_directory=sublayout_link_dir)
+        build_link = in_toto_run("build", [], [], [], signing_key=build_key, metadata_directory=sublayout_link_dir)
+    else:
+        os.mkdir(os.path.join("metadata", layout_name))
+        source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
+        test_link = in_toto_run("test", [], [], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
+        build_link = in_toto_run("build", [], [], [], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
+
+
+def create_advanced_supply_chain(layout_name):
     os.mkdir(os.path.join("metadata", layout_name))
+    sublayout_name = layout_name + "-sublayout"
+    create_basic_supply_chain(sublayout_name, parent_layout=layout_name)
+
+    owner_path = os.path.join("keys", layout_name + "-owner")
+    source_path = os.path.join("keys", layout_name + "-source")
+    sublayout_path = os.path.join("keys", sublayout_name + "-owner")
+    test_path = os.path.join("keys", layout_name + "-test")
+    build_path = os.path.join("keys", layout_name + "-build")
+
+    # Create owner key
+    interface._generate_and_write_rsa_keypair(filepath=owner_path)
+
+    # Create functionary keys
+    interface._generate_and_write_rsa_keypair(filepath=source_path)
+    interface._generate_and_write_rsa_keypair(filepath=test_path)
+    interface._generate_and_write_rsa_keypair(filepath=build_path)
+
+    # Load private key for owner, public keys for functionaries
+    owner_key = interface.import_rsa_privatekey_from_file(owner_path)
+    source_key = interface.import_rsa_publickey_from_file(source_path + ".pub")
+    sublayout_key = interface.import_rsa_publickey_from_file(sublayout_path + ".pub")
+    test_key = interface.import_rsa_publickey_from_file(test_path + ".pub")
+    build_key = interface.import_rsa_publickey_from_file(build_path + ".pub")
+
+    # Create layout
+    layout = Layout.read({
+        "_type": "layout",
+        "keys": {
+            source_key["keyid"]: source_key,
+            sublayout_key["keyid"]: sublayout_key,
+            test_key["keyid"]: test_key,
+            build_key["keyid"]: build_key,
+        },
+        "steps": [
+            {
+                "name": "source",
+                "expected_materials": [],
+                "expected_products": [],
+                "pubkeys": [source_key["keyid"]],
+                "expected_command": [],
+                "threshold": 1,
+            },
+            {
+                "name": "tier-2-supply-chain",
+                "expected_materials": [],
+                "expected_products": [],
+                "pubkeys": [sublayout_key["keyid"]],
+                "expected_command": [],
+                "threshold": 1,
+            },
+            {
+                "name": "test",
+                "expected_materials": [],
+                "expected_products": [],
+                "pubkeys": [test_key["keyid"]],
+                "expected_command": [],
+                "threshold": 1,
+            },
+            {
+                "name": "build",
+                "expected_materials": [],
+                "expected_products": [],
+                "pubkeys": [build_key["keyid"]],
+                "expected_command": [],
+                "threshold": 1,
+            },
+        ],
+        "inspect": [],
+    })
+
+    metadata = Metablock(signed=layout)
+
+    metadata.sign(owner_key)
+    metadata.dump(os.path.join("metadata", layout_name + ".layout"))
+
+    # Load functionary private keys
+    source_key = interface.import_rsa_privatekey_from_file(source_path)
+    test_key = interface.import_rsa_privatekey_from_file(test_path)
+    build_key = interface.import_rsa_privatekey_from_file(build_path)
 
     # Generate link metadata
     source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
@@ -115,7 +210,10 @@ def main():
 
     for i in range(args.total):
         # TODO: A subset should create advanced supply chains
-        create_basic_supply_chain("supply-chain-{}".format(i))
+        if i < args.advanced:
+            create_advanced_supply_chain("supply-chain-{}".format(i))
+        else:
+            create_basic_supply_chain("supply-chain-{}".format(i))
 
 
 if __name__ == "__main__":
