@@ -8,11 +8,14 @@ import os
 import shutil
 
 
-def create_basic_supply_chain(layout_name, parent_layout="", ):
+def create_basic_supply_chain(layout_name, parent_layout=""):
+    # FIXME: parent_layout can imply a boolean argument that says this is a parent layout rather than a sublayout
     owner_path = os.path.join("keys", layout_name + "-owner")
     source_path = os.path.join("keys", layout_name + "-source")
     test_path = os.path.join("keys", layout_name + "-test")
     build_path = os.path.join("keys", layout_name + "-build")
+
+    artifact_path = os.path.join("artifacts", layout_name + ".src")
 
     # Create owner key
     interface._generate_and_write_rsa_keypair(filepath=owner_path)
@@ -20,6 +23,7 @@ def create_basic_supply_chain(layout_name, parent_layout="", ):
     # Create functionary keys
     interface._generate_and_write_rsa_keypair(filepath=source_path)
     interface._generate_and_write_rsa_keypair(filepath=test_path)
+    # FIXME: don't generate build keys if sublayout
     interface._generate_and_write_rsa_keypair(filepath=build_path)
 
     # Load private key for owner, public keys for functionaries
@@ -29,41 +33,70 @@ def create_basic_supply_chain(layout_name, parent_layout="", ):
     build_key = interface.import_rsa_publickey_from_file(build_path + ".pub")
 
     # Create layout
-    layout = Layout.read({
-        "_type": "layout",
-        "keys": {
-            source_key["keyid"]: source_key,
-            test_key["keyid"]: test_key,
-            build_key["keyid"]: build_key,
-        },
-        "steps": [
-            {
-                "name": "source",
-                "expected_materials": [],
-                "expected_products": [],
-                "pubkeys": [source_key["keyid"]],
-                "expected_command": [],
-                "threshold": 1,
+    if parent_layout:
+        layout = Layout.read({
+            "_type": "layout",
+            "keys": {
+                source_key["keyid"]: source_key,
+                test_key["keyid"]: test_key,
+                build_key["keyid"]: build_key,
             },
-            {
-                "name": "test",
-                "expected_materials": [],
-                "expected_products": [],
-                "pubkeys": [test_key["keyid"]],
-                "expected_command": [],
-                "threshold": 1,
+            "steps": [
+                {
+                    "name": "source",
+                    "expected_materials": [["DISALLOW", "*"]],
+                    "expected_products": [["CREATE", artifact_path], ["DISALLOW", "*"]],
+                    "pubkeys": [source_key["keyid"]],
+                    "expected_command": ["echo", layout_name],
+                    "threshold": 1,
+                },
+                {
+                    "name": "test",
+                    "expected_materials": [["MATCH", artifact_path, "WITH", "PRODUCTS", "FROM", "source"], ["DISALLOW", "*"]],
+                    "expected_products": [["ALLOW", artifact_path], ["DISALLOW", "*"]],
+                    "pubkeys": [test_key["keyid"]],
+                    "expected_command": [],
+                    "threshold": 1,
+                },
+            ],
+            "inspect": [],
+        })
+    else:
+        layout = Layout.read({
+            "_type": "layout",
+            "keys": {
+                source_key["keyid"]: source_key,
+                test_key["keyid"]: test_key,
+                build_key["keyid"]: build_key,
             },
-            {
-                "name": "build",
-                "expected_materials": [],
-                "expected_products": [],
-                "pubkeys": [build_key["keyid"]],
-                "expected_command": [],
-                "threshold": 1,
-            },
-        ],
-        "inspect": [],
-    })
+            "steps": [
+                {
+                    "name": "source",
+                    "expected_materials": [["DISALLOW", "*"]],
+                    "expected_products": [["CREATE", artifact_path], ["DISALLOW", "*"]],
+                    "pubkeys": [source_key["keyid"]],
+                    "expected_command": [],
+                    "threshold": 1,
+                },
+                {
+                    "name": "test",
+                    "expected_materials": [["MATCH", artifact_path, "WITH", "PRODUCTS", "FROM", "source"], ["DISALLOW", "*"]],
+                    "expected_products": [["ALLOW", artifact_path], ["DISALLOW", "*"]],
+                    "pubkeys": [test_key["keyid"]],
+                    "expected_command": [],
+                    "threshold": 1,
+                },
+                {
+                    "name": "build",
+                    "expected_materials": [["MATCH", artifact_path, "WITH", "PRODUCTS", "FROM", "test"], ["DISALLOW", "*"]],
+                    "expected_products": [["CREATE", artifact_path + ".tar.gz"], ["DISALLOW", "*"]],
+                    "pubkeys": [build_key["keyid"]],
+                    "expected_command": [],
+                    "threshold": 1,
+                },
+            ],
+            "inspect": [],
+        })
 
     metadata = Metablock(signed=layout)
 
@@ -83,14 +116,20 @@ def create_basic_supply_chain(layout_name, parent_layout="", ):
     if parent_layout:
         sublayout_link_dir = os.path.join("metadata", parent_layout, "tier-2-supply-chain.{keyid:.8}".format(keyid=owner_key["keyid"]))
         os.mkdir(sublayout_link_dir)
-        source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=sublayout_link_dir)
-        test_link = in_toto_run("test", [], [], [], signing_key=test_key, metadata_directory=sublayout_link_dir)
-        build_link = in_toto_run("build", [], [], [], signing_key=build_key, metadata_directory=sublayout_link_dir)
+
+        with open(artifact_path, "w+") as f:
+            f.write(layout_name + "\n")
+        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=sublayout_link_dir)
+        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=sublayout_link_dir)
+        # build_link = in_toto_run("build", [artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path], signing_key=build_key, metadata_directory=sublayout_link_dir)
     else:
         os.mkdir(os.path.join("metadata", layout_name))
-        source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
-        test_link = in_toto_run("test", [], [], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
-        build_link = in_toto_run("build", [], [], [], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
+
+        with open(artifact_path, "w+") as f:
+            f.write(layout_name + "\n")
+        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
+        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
+        build_link = in_toto_run("build", [artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
 
 
 def create_advanced_supply_chain(layout_name):
@@ -103,6 +142,9 @@ def create_advanced_supply_chain(layout_name):
     sublayout_path = os.path.join("keys", sublayout_name + "-owner")
     test_path = os.path.join("keys", layout_name + "-test")
     build_path = os.path.join("keys", layout_name + "-build")
+
+    artifact_path = os.path.join("artifacts", layout_name + ".src")
+    sublayout_artifact_path = os.path.join("artifacts", sublayout_name + ".src")
 
     # Create owner key
     interface._generate_and_write_rsa_keypair(filepath=owner_path)
@@ -131,32 +173,32 @@ def create_advanced_supply_chain(layout_name):
         "steps": [
             {
                 "name": "source",
-                "expected_materials": [],
-                "expected_products": [],
+                "expected_materials": [["DISALLOW", "*"]],
+                "expected_products": [["CREATE", artifact_path], ["DISALLOW", "*"]],
                 "pubkeys": [source_key["keyid"]],
                 "expected_command": [],
                 "threshold": 1,
             },
             {
                 "name": "tier-2-supply-chain",
-                "expected_materials": [],
-                "expected_products": [],
+                "expected_materials": [["DISALLOW", "*"]],
+                "expected_products": [["CREATE", sublayout_artifact_path], ["DISALLOW", "*"]],
                 "pubkeys": [sublayout_key["keyid"]],
                 "expected_command": [],
                 "threshold": 1,
             },
             {
                 "name": "test",
-                "expected_materials": [],
-                "expected_products": [],
+                "expected_materials": [["MATCH", artifact_path, "WITH", "PRODUCTS", "FROM", "source"], ["MATCH", sublayout_artifact_path, "WITH", "PRODUCTS", "FROM", "tier-2-supply-chain"], ["DISALLOW", "*"]],
+                "expected_products": [["ALLOW", artifact_path], ["ALLOW", sublayout_artifact_path], ["DISALLOW", "*"]],
                 "pubkeys": [test_key["keyid"]],
                 "expected_command": [],
                 "threshold": 1,
             },
             {
                 "name": "build",
-                "expected_materials": [],
-                "expected_products": [],
+                "expected_materials": [["MATCH", "*", "WITH", "PRODUCTS", "FROM", "test"], ["DISALLOW", "*"]],
+                "expected_products": [["CREATE", artifact_path + ".tar.gz"], ["DISALLOW", "*"]],
                 "pubkeys": [build_key["keyid"]],
                 "expected_command": [],
                 "threshold": 1,
@@ -176,9 +218,11 @@ def create_advanced_supply_chain(layout_name):
     build_key = interface.import_rsa_privatekey_from_file(build_path)
 
     # Generate link metadata
-    source_link = in_toto_run("source", [], [], [], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
-    test_link = in_toto_run("test", [], [], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
-    build_link = in_toto_run("build", [], [], [], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
+    with open(artifact_path, "w+") as f:
+        f.write(layout_name + "\n")
+    source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
+    test_link = in_toto_run("test", [artifact_path, sublayout_artifact_path], [artifact_path, sublayout_artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
+    build_link = in_toto_run("build", [artifact_path, sublayout_artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path, sublayout_artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
 
 
 def main():
@@ -189,6 +233,9 @@ def main():
     args = parser.parse_args()
 
     if args.clean:
+        for f in os.listdir("artifacts"):
+            if f != ".keep":
+                os.remove(os.path.join("artifacts", f))
         for f in os.listdir("keys"):
             if f != ".keep":
                 os.remove(os.path.join("keys", f))
