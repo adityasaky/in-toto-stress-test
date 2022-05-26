@@ -98,7 +98,7 @@ def create_basic_supply_chain(layout_name, parent_layout=""):
             "inspect": [],
         })
 
-    metadata = Metablock(signed=layout)
+    metadata = Metablock(signed=layout, compact_json=True)
 
     metadata.sign(owner_key)
 
@@ -119,17 +119,17 @@ def create_basic_supply_chain(layout_name, parent_layout=""):
 
         with open(artifact_path, "w+") as f:
             f.write(layout_name + "\n")
-        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=sublayout_link_dir)
-        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=sublayout_link_dir)
+        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=sublayout_link_dir, compact_json=True)
+        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=sublayout_link_dir, compact_json=True)
         # build_link = in_toto_run("build", [artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path], signing_key=build_key, metadata_directory=sublayout_link_dir)
     else:
         os.mkdir(os.path.join("metadata", layout_name))
 
         with open(artifact_path, "w+") as f:
             f.write(layout_name + "\n")
-        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
-        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
-        build_link = in_toto_run("build", [artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
+        source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
+        test_link = in_toto_run("test", [artifact_path], [artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
+        build_link = in_toto_run("build", [artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
 
 
 def create_advanced_supply_chain(layout_name):
@@ -207,7 +207,7 @@ def create_advanced_supply_chain(layout_name):
         "inspect": [],
     })
 
-    metadata = Metablock(signed=layout)
+    metadata = Metablock(signed=layout, compact_json=True)
 
     metadata.sign(owner_key)
     metadata.dump(os.path.join("metadata", layout_name + ".layout"))
@@ -220,9 +220,9 @@ def create_advanced_supply_chain(layout_name):
     # Generate link metadata
     with open(artifact_path, "w+") as f:
         f.write(layout_name + "\n")
-    source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name))
-    test_link = in_toto_run("test", [artifact_path, sublayout_artifact_path], [artifact_path, sublayout_artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name))
-    build_link = in_toto_run("build", [artifact_path, sublayout_artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path, sublayout_artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name))
+    source_link = in_toto_run("source", [], [artifact_path], ["echo", layout_name], signing_key=source_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
+    test_link = in_toto_run("test", [artifact_path, sublayout_artifact_path], [artifact_path, sublayout_artifact_path], [], signing_key=test_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
+    build_link = in_toto_run("build", [artifact_path, sublayout_artifact_path], [artifact_path + ".tar.gz"], ["tar", "-czf", artifact_path + ".tar.gz", artifact_path, sublayout_artifact_path], signing_key=build_key, metadata_directory=os.path.join("metadata", layout_name), compact_json=True)
 
 
 def main():
